@@ -53,6 +53,18 @@
   .dbl { border: 1.4px solid var(--brick); color: var(--brick); box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 3.4px var(--brick); }
   .pu { color: var(--brick); font-size: 11px; font-weight: 800; }
   .under { color: var(--under); } .over { color: var(--brick); }
+  .game .ghead { padding: 0 14px; font-size: 20px; font-weight: 900; }
+  .game .gnote { padding: 2px 14px 10px; font-size: 12px; color: var(--mid); }
+  .plist { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 14px; padding: 0 14px 12px;
+    font-variant-numeric: tabular-nums; align-items: baseline; }
+  .plist .n { font-weight: 700; font-size: 15px; }
+  .plist .ph { font-size: 12px; color: var(--mid); text-align: right; letter-spacing: .04em; }
+  .plist .ph b { color: var(--ink); font-size: 15px; }
+  .plist .sc { font-weight: 800; text-align: right; min-width: 56px; }
+  .shots td { color: var(--gold); font-size: 13px; letter-spacing: -1px; }
+  .shots tr.si td { color: var(--mid); font-size: 11px; letter-spacing: 0; }
+  .shots td.tot, .shots td.name { color: var(--ink); letter-spacing: 0; }
+  .sublabel { font-family: Georgia, serif; letter-spacing: .2em; font-size: 10px; color: var(--mid); padding: 4px 14px 6px; }
   .meta { text-align: center; color: var(--mid); font-size: 12px; margin: 10px 0 30px; }
   .msg { background: var(--cream); border: 1px solid var(--hair); border-radius: 16px; padding: 22px; text-align: center; color: var(--mid); }
   .msg b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
@@ -139,10 +151,34 @@ function render(g) {
     <section class="status"><div class="big">${esc(g.status)}</div><div class="thru">${esc(g.thru)}</div>
       ${lines ? `<div class="lines">${lines}</div>` : ""}
       ${totals ? `<div class="totals">${totals}</div>` : ""}</section>
+    ${(g.games || []).map(x => gameCard(x, g.holes)).join("")}
     <section class="card"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
       <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div></section>`;
   lastUpdated = (g.updated || 0) * 1000;
   tickMeta();
+}
+
+function gameCard(g, holes) {
+  const players = g.players || [];
+  const plist = players.map(p => `<span class="n">${esc(p.name)}</span>` +
+    `<span class="ph">PLAYS <b>${p.plays}</b></span><span class="sc">${esc(p.score)}</span>`).join("");
+  const anyShots = players.some(p => (p.shots || []).some(x => x > 0));
+  let grid = "";
+  if (anyShots) {
+    const dots = n => n <= 0 ? "" : (n === 1 ? "\u25CF" : n === 2 ? "\u25CF\u25CF" : n + "\u25CF");
+    const head = `<tr><th class="name">HOLE</th>${holes.map(h => `<th>${h.n}</th>`).join("")}<th>TOT</th></tr>`;
+    const si = `<tr class="si"><td class="name">Stroke index</td>${holes.map(h => `<td>${h.si ?? ""}</td>`).join("")}<td class="tot"></td></tr>`;
+    const rows = players.map(p => {
+      const sh = p.shots || [];
+      const tot = sh.reduce((a, b) => a + (b || 0), 0);
+      return `<tr><td class="name">${esc(p.name)}</td>${holes.map((h, i) => `<td>${dots(sh[i] || 0)}</td>`).join("")}<td class="tot">${tot}</td></tr>`;
+    }).join("");
+    grid = `<div class="sublabel">SHOTS RECEIVED &middot; IN THE ORDER PLAYED</div>
+      <div class="scroll shots"><table><thead>${head}</thead><tbody>${si}${rows}</tbody></table></div>`;
+  }
+  return `<section class="card game"><h2>${esc(g.name)}</h2>
+    <div class="ghead">${esc(g.headline)}</div><div class="gnote">${esc(g.note)}</div>
+    <div class="plist">${plist}</div>${grid}</section>`;
 }
 
 function tickMeta() {
