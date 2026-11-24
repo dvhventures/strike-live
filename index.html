@@ -87,6 +87,20 @@
   .pd { font-size: 13px; color: var(--mid); margin-top: 3px; }
   .ps { font-weight: 900; font-size: 14px; text-align: right; white-space: nowrap; }
   .pr.p, .pr.x { opacity: .45; }
+  td[data-ch] { cursor: pointer; }
+  td[data-ch]:active { background: var(--cream); }
+  .chhint { font-size: 12px; color: var(--mid); padding: 10px 14px 12px; }
+  .chhint a { color: var(--green); font-weight: 800; }
+  .chform { display: grid; gap: 10px; padding: 0 14px 16px; }
+  .chform label { display: grid; gap: 4px; font-size: 12px; color: var(--mid); letter-spacing: .04em; }
+  .chform select, .chform input { font: inherit; font-size: 17px; padding: 10px 12px; border-radius: 12px;
+    border: 1px solid var(--hair); background: var(--bone); color: var(--ink); -webkit-appearance: none; }
+  .chrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .chnow { font-size: 15px; font-weight: 700; }
+  .chbtn { display: block; text-align: center; text-decoration: none; font-weight: 800; letter-spacing: .06em;
+    font-size: 14px; padding: 14px 0; border-radius: 14px; }
+  .chbtn.wa { background: var(--green); color: var(--gold2); }
+  .chbtn.tx { background: var(--cream); color: var(--green); border: 1px solid var(--hair); }
   footer { text-align: center; font-family: Georgia, serif; letter-spacing: .3em; font-size: 11px; color: var(--mid); padding-bottom: 30px; }
 </style>
 </head>
@@ -98,6 +112,7 @@
 </header>
 <nav class="tabs" id="tabs" style="display:none"></nav>
 <main id="main"></main>
+<main><section class="card" id="challenge" style="display:none"></section></main>
 <div class="meta" id="meta"></div>
 <footer>STRIKE &middot; DRIVEN BY DATA</footer>
 <script>
@@ -120,6 +135,7 @@ const code = (qs.get("g") || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
 const env = qs.get("e") === "p" ? "production" : "development";
 const $ = id => document.getElementById(id);
 let lastUpdated = 0, failures = 0;
+let G = null, chSig = "";
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
@@ -160,11 +176,14 @@ function render(g) {
   const tabs = [prog && `<a href="#match">MATCH</a>`, `<a href="#scorecard">SCORECARD</a>`,
     games && `<a href="#games">GAMES</a>`].filter(Boolean);
   const par = `<tr class="par"><td class="name">Par</td>${g.holes.map(h => `<td>${h.par ?? ""}</td>`).join("")}<td class="tot"></td><td></td></tr>`;
-  const rows = g.rows.map(r => {
+  const canChallenge = !!g.challenge;
+  const rows = g.rows.map((r, ri) => {
+    const tap = canChallenge && !isTeamRow(r);
     const cells = g.holes.map((h, i) => {
-      if (r.pickups && r.pickups[i]) return `<td><span class="pu">PU</span></td>`;
+      const at = tap ? ` data-ch="${ri},${i}"` : "";
+      if (r.pickups && r.pickups[i]) return `<td${at}><span class="pu">PU</span></td>`;
       const s = r.scores[i];
-      return `<td>${s == null ? "" : `<span class="s ${cls(s, h.par)}">${s}</span>`}</td>`;
+      return `<td${at}>${s == null ? "" : `<span class="s ${cls(s, h.par)}">${s}</span>`}</td>`;
     }).join("");
     const tp = r.toPar || "";
     const tpc = tp.startsWith("-") ? "under" : (tp.startsWith("+") ? "over" : "");
@@ -179,8 +198,13 @@ function render(g) {
       ${totals ? `<div class="totals">${totals}</div>` : ""}</section>
     ${prog}
     <section class="card" id="scorecard"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
-      <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div></section>
+      <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div>
+      <div class="chhint">${canChallenge
+        ? `Think a score is wrong? Tap it, or <a href="#challenge">challenge a score</a>.`
+        : `Think a score is wrong? Tell the scorer on the course &mdash; they'll check it and fix the card.`}</div></section>
     ${games ? `<div id="games">${games}</div>` : ""}`;
+  G = g;
+  renderChallenge(g);
   lastUpdated = (g.updated || 0) * 1000;
   tickMeta();
 }
@@ -223,6 +247,75 @@ function gameCard(g, holes) {
     <div class="ghead">${esc(g.headline)}</div><div class="gnote">${esc(g.note)}</div>
     <div class="plist">${plist}</div>${grid}</section>`;
 }
+
+// ---- score challenges ----------------------------------------------------
+// Opens WhatsApp or a text to the host with the hole, the player, what the
+// card says and what the viewer thinks it should be. Built once and kept
+// outside #main so the 15 s refresh never wipes a half-written challenge.
+function isTeamRow(r) { return / \u00B7 team$/.test(r.name); }
+
+function renderChallenge(g) {
+  const box = $("challenge");
+  if (!g.challenge) { box.style.display = "none"; box.innerHTML = ""; chSig = ""; return; }
+  const players = g.rows.filter(r => !isTeamRow(r)).map(r => r.name);
+  const sig = g.holes.map(h => h.n).join(",") + "|" + players.join(",");
+  if (sig !== chSig) {
+    chSig = sig;
+    const holeOpts = g.holes.map((h, i) => `<option value="${i}">Hole ${h.n}${h.par != null ? " \u00B7 par " + h.par : ""}</option>`).join("");
+    const playerOpts = players.map(n => `<option>${esc(n)}</option>`).join("");
+    const wantOpts = Array.from({ length: 12 }, (_, k) => `<option>${k + 1}</option>`).join("");
+    box.innerHTML = `<h2>CHALLENGE A SCORE</h2><div class="chform">
+      <div class="chrow"><label>HOLE<select id="chHole">${holeOpts}</select></label>
+        <label>PLAYER<select id="chPlayer">${playerOpts}</select></label></div>
+      <div class="chnow" id="chNow"></div>
+      <div class="chrow"><label>SHOULD BE<select id="chWant">${wantOpts}</select></label>
+        <label>YOUR NAME<input id="chName" autocomplete="name" placeholder="optional"></label></div>
+      <a class="chbtn wa" id="chWa" target="_blank" rel="noopener">SEND ON WHATSAPP</a>
+      <a class="chbtn tx" id="chTx">SEND AS A TEXT</a></div>`;
+    // A new hole / player starts "should be" from the card; editing
+    // "should be" or the name must not reset it.
+    ["chHole", "chPlayer"].forEach(id => $(id).addEventListener("input", () => updateChallenge(false)));
+    ["chWant", "chName"].forEach(id => $(id).addEventListener("input", () => updateChallenge(true)));
+    try { $("chName").value = localStorage.getItem("strikeLiveName") || ""; } catch (e) {}
+  }
+  box.style.display = "";
+  updateChallenge(true);
+}
+
+function cardScore(player, i) {
+  const r = (G.rows || []).find(x => x.name === player);
+  if (!r) return null;
+  if (r.pickups && r.pickups[i]) return "PU";
+  return r.scores[i];
+}
+
+function updateChallenge(keepWant) {
+  if (!G || !G.challenge || !$("chHole")) return;
+  const i = +$("chHole").value, player = $("chPlayer").value, h = G.holes[i] || {};
+  const now = cardScore(player, i);
+  const nowText = now == null ? "no score yet" : (now === "PU" ? "picked up" : String(now));
+  $("chNow").textContent = `On the card: ${player} \u2014 ${nowText} on hole ${h.n}`;
+  if (keepWant !== true && typeof now === "number") $("chWant").value = String(now);
+  const name = $("chName").value.trim();
+  try { localStorage.setItem("strikeLiveName", name); } catch (e) {}
+  const msg = `Strike Live \u00B7 ${G.title}: hole ${h.n} \u2014 ${player} is down as ${nowText}, ` +
+    `I think it should be ${$("chWant").value}.` + (name ? ` \u2014 ${name}` : "");
+  $("chWa").href = `https://wa.me/${G.challenge}?text=${encodeURIComponent(msg)}`;
+  $("chTx").href = `sms:+${G.challenge}&body=${encodeURIComponent(msg)}`;
+}
+
+document.addEventListener("click", e => {
+  const td = e.target.closest && e.target.closest("td[data-ch]");
+  if (!td || !G || !$("chHole")) return;
+  const [ri, i] = td.dataset.ch.split(",").map(Number);
+  $("chHole").value = String(i);
+  $("chPlayer").value = G.rows[ri].name;
+  updateChallenge(false);
+  const n = cardScore(G.rows[ri].name, i);
+  if (typeof n === "number") $("chWant").value = String(n);
+  updateChallenge(true);
+  $("challenge").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 function tickMeta() {
   if (!lastUpdated) return;
