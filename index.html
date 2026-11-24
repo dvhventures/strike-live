@@ -68,6 +68,25 @@
   .meta { text-align: center; color: var(--mid); font-size: 12px; margin: 10px 0 30px; }
   .msg { background: var(--cream); border: 1px solid var(--hair); border-radius: 16px; padding: 22px; text-align: center; color: var(--mid); }
   .msg b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
+  .tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; padding: 10px 16px;
+    background: var(--bone); border-bottom: 1px solid var(--hair); justify-content: center; }
+  .tabs a { flex: 1; max-width: 160px; text-align: center; text-decoration: none; color: var(--green);
+    font-weight: 800; font-size: 13px; letter-spacing: .08em; padding: 9px 0; border-radius: 999px;
+    background: var(--cream); border: 1px solid var(--hair); }
+  section[id] { scroll-margin-top: 64px; }
+  .prog { padding: 0 0 4px; }
+  .pr { display: grid; grid-template-columns: 46px 1fr auto; gap: 10px; align-items: center;
+    padding: 9px 14px; border-top: 1px solid #EFEADB; }
+  .pr .ph b { display: block; font-size: 17px; font-weight: 900; }
+  .pr .ph small { color: var(--mid); font-size: 11px; }
+  .chip { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: .04em; padding: 3px 9px;
+    border-radius: 999px; background: #EFEADB; color: var(--mid); }
+  .chip.a { background: var(--green); color: var(--gold2); }
+  .chip.b { background: var(--gold); color: var(--green); }
+  .chip.h { background: #E8E4D6; color: var(--ink); }
+  .pd { font-size: 13px; color: var(--mid); margin-top: 3px; }
+  .ps { font-weight: 900; font-size: 14px; text-align: right; white-space: nowrap; }
+  .pr.p, .pr.x { opacity: .45; }
   footer { text-align: center; font-family: Georgia, serif; letter-spacing: .3em; font-size: 11px; color: var(--mid); padding-bottom: 30px; }
 </style>
 </head>
@@ -77,6 +96,7 @@
   <h1 id="title">Loading&hellip;</h1>
   <div class="sub" id="sub">&nbsp;</div>
 </header>
+<nav class="tabs" id="tabs" style="display:none"></nav>
 <main id="main"></main>
 <div class="meta" id="meta"></div>
 <footer>STRIKE &middot; DRIVEN BY DATA</footer>
@@ -135,6 +155,10 @@ function render(g) {
     return `<span class="n">${esc(r.name)}</span><span class="g">${esc(r.total)}</span><span class="p ${c}">${esc(tp)}</span>`;
   }).join("");
   const head = `<tr><th class="name">HOLE</th>${g.holes.map(h => `<th>${h.n}</th>`).join("")}<th>TOT</th><th>+/&minus;</th></tr>`;
+  const prog = progressCard(g.progress || []);
+  const games = (g.games || []).map(x => gameCard(x, g.holes)).join("");
+  const tabs = [prog && `<a href="#match">MATCH</a>`, `<a href="#scorecard">SCORECARD</a>`,
+    games && `<a href="#games">GAMES</a>`].filter(Boolean);
   const par = `<tr class="par"><td class="name">Par</td>${g.holes.map(h => `<td>${h.par ?? ""}</td>`).join("")}<td class="tot"></td><td></td></tr>`;
   const rows = g.rows.map(r => {
     const cells = g.holes.map((h, i) => {
@@ -147,15 +171,34 @@ function render(g) {
     return `<tr><td class="name">${esc(r.name)}${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</td>${cells}<td class="tot">${esc(r.total)}</td><td class="topar ${tpc}">${esc(tp)}</td></tr>`;
   }).join("");
 
+  $("tabs").innerHTML = tabs.length > 1 ? tabs.join("") : "";
+  $("tabs").style.display = tabs.length > 1 ? "" : "none";
   $("main").innerHTML = `
     <section class="status"><div class="big">${esc(g.status)}</div><div class="thru">${esc(g.thru)}</div>
       ${lines ? `<div class="lines">${lines}</div>` : ""}
       ${totals ? `<div class="totals">${totals}</div>` : ""}</section>
-    ${(g.games || []).map(x => gameCard(x, g.holes)).join("")}
-    <section class="card"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
-      <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div></section>`;
+    ${prog}
+    <section class="card" id="scorecard"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
+      <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div></section>
+    ${games ? `<div id="games">${games}</div>` : ""}`;
   lastUpdated = (g.updated || 0) * 1000;
   tickMeta();
+}
+
+// The match hole by hole, in the order played: who won each hole, the
+// scores that decided it, and where the match stood after it.
+function progressCard(steps) {
+  if (!steps.length) return "";
+  const rows = steps.map(st => {
+    const cls = st.side === "" ? "p" : st.side;
+    const chip = st.side === "x" ? `<span class="chip">Match over</span>`
+      : st.side === "" ? `<span class="chip">To play</span>`
+      : `<span class="chip ${st.side}">${esc(st.side === "h" ? "Halved" : st.winner + " won")}</span>`;
+    return `<div class="pr ${cls}"><div class="ph"><b>${st.n}</b><small>${st.par != null ? "Par " + st.par : ""}</small></div>` +
+      `<div class="pw">${chip}${st.detail ? `<div class="pd">${esc(st.detail)}</div>` : ""}</div>` +
+      `<div class="ps">${esc(st.status)}</div></div>`;
+  }).join("");
+  return `<section class="card" id="match"><h2>MATCH &middot; HOLE BY HOLE</h2><div class="prog">${rows}</div></section>`;
 }
 
 function gameCard(g, holes) {
