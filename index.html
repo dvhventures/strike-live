@@ -23,6 +23,9 @@
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
   h1 { font-size: 26px; margin: 14px 0 4px; font-weight: 800; letter-spacing: -.01em; }
   .sub { color: #C8CFC5; font-size: 14px; }
+  .hstat { margin-top: 12px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .hstat .big { font-size: 22px; font-weight: 900; color: var(--gold2); letter-spacing: .01em; }
+  .hstat .thru { font-family: Georgia, serif; letter-spacing: .18em; font-size: 11px; color: #C8CFC5; }
   main { padding: 16px; max-width: 760px; margin: 0 auto; }
   .status { background: var(--cream); border: 1px solid var(--hair); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
   .status .big { font-size: 26px; font-weight: 900; letter-spacing: .01em; }
@@ -70,10 +73,14 @@
   .msg b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
   .tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; padding: 10px 16px;
     background: var(--bone); border-bottom: 1px solid var(--hair); justify-content: center; }
-  .tabs a { flex: 1; max-width: 160px; text-align: center; text-decoration: none; color: var(--green);
+  .tabs button { flex: 1; max-width: 160px; text-align: center; color: var(--green); font: inherit;
     font-weight: 800; font-size: 13px; letter-spacing: .08em; padding: 9px 0; border-radius: 999px;
-    background: var(--cream); border: 1px solid var(--hair); }
-  section[id] { scroll-margin-top: 64px; }
+    background: var(--cream); border: 1px solid var(--hair); cursor: pointer; -webkit-appearance: none; }
+  .tabs button.on { background: var(--green); color: var(--gold2); border-color: var(--green); }
+  .pane[hidden] { display: none; }
+  .glines { display: grid; gap: 4px; padding: 0 14px 12px; }
+  .glines div { font-size: 14px; font-weight: 600; padding-top: 6px; border-top: 1px solid #EFEADB; }
+  .nogames { padding: 4px 14px 16px; color: var(--mid); font-size: 14px; }
   .prog { padding: 0 0 4px; }
   .pr { display: grid; grid-template-columns: 46px 1fr auto; gap: 10px; align-items: center;
     padding: 9px 14px; border-top: 1px solid #EFEADB; }
@@ -109,6 +116,7 @@
   <div class="brand"><span>STRIKE</span><span class="live"><span class="dot" id="dot"></span><span id="liveword">LIVE</span></span></div>
   <h1 id="title">Loading&hellip;</h1>
   <div class="sub" id="sub">&nbsp;</div>
+  <div class="hstat" id="hstat" style="display:none"><span class="big" id="hbig"></span><span class="thru" id="hthru"></span></div>
 </header>
 <nav class="tabs" id="tabs" style="display:none"></nav>
 <main id="main"></main>
@@ -157,24 +165,52 @@ function cls(score, par) {
   return d <= -2 ? "eagle" : d === -1 ? "birdie" : d === 0 ? "" : d === 1 ? "bogey" : "dbl";
 }
 
+// Three real tabs, like the app's SCORE / MATCH / CARD (26 Nov 2026 —
+// DVH: the Games section repeated the match and sat under everything
+// else). Each fact appears once:
+//   • the score lives in the green header on every tab;
+//   • MATCH (LEADERBOARD for a non-match game) = the main game — who
+//     plays off what, shots received, holes won, hole by hole;
+//   • SCORECARD = the card and score challenges;
+//   • GAMES = side games only (the app always sends the main game first
+//     in `games`; it's shown on the first tab, never repeated here).
+let pane = "";
+
 function render(g) {
-  document.title = `${g.title} \u00B7 Strike Live`;
+  document.title = `${g.title} · Strike Live`;
   $("title").textContent = g.title;
-  $("sub").textContent = [g.course, g.tee && `${g.tee} tees`, g.date, g.format].filter(Boolean).join(" \u00B7 ");
+  $("sub").textContent = [g.course, g.tee && `${g.tee} tees`, g.date, g.format].filter(Boolean).join(" · ");
   $("dot").className = "dot" + (g.finished ? " final" : "");
   $("liveword").textContent = g.finished ? "FINAL" : "LIVE";
+  $("hbig").textContent = g.status || "";
+  $("hthru").textContent = g.thru || "";
+  $("hstat").style.display = (g.status || g.thru) ? "" : "none";
 
+  const steps = g.progress || [];
+  const isMatch = steps.length > 0;
+  const allGames = g.games || [];
+  const main = allGames[0] || null;
+  const sides = allGames.slice(1);
+
+  // MATCH / LEADERBOARD
   const lines = (g.lines || []).map(l => `<div>${esc(l)}</div>`).join("");
-  const totals = g.rows.map(r => {
+  // Totals only when there's no main-game card to carry them; a
+  // leaderboard player with no game score (plain stroke play) shows
+  // their gross total instead, so each player appears once.
+  const totals = (isMatch || main) ? "" : g.rows.map(r => {
     const tp = r.toPar || "";
     const c = tp.startsWith("-") ? "under" : (tp.startsWith("+") ? "over" : "");
     return `<span class="n">${esc(r.name)}</span><span class="g">${esc(r.total)}</span><span class="p ${c}">${esc(tp)}</span>`;
   }).join("");
+  const gross = isMatch ? null : Object.fromEntries(g.rows.map(r =>
+    [r.name, r.total && r.total !== "\u2014" ? `${r.total}${r.toPar ? " (" + r.toPar + ")" : ""}` : ""]));
+  const mainCard = main
+    ? gameCard(main, g.holes, { lines, headline: false, gross })
+    : ((lines || totals) ? `<section class="card game">${lines ? `<div class="glines">${lines}</div>` : ""}${totals ? `<div class="plist totals">${totals}</div>` : ""}</section>` : "");
+  const firstPane = mainCard + progressCard(steps);
+
+  // SCORECARD
   const head = `<tr><th class="name">HOLE</th>${g.holes.map(h => `<th>${h.n}</th>`).join("")}<th>TOT</th><th>+/&minus;</th></tr>`;
-  const prog = progressCard(g.progress || []);
-  const games = (g.games || []).map(x => gameCard(x, g.holes)).join("");
-  const tabs = [prog && `<a href="#match">MATCH</a>`, `<a href="#scorecard">SCORECARD</a>`,
-    games && `<a href="#games">GAMES</a>`].filter(Boolean);
   const par = `<tr class="par"><td class="name">Par</td>${g.holes.map(h => `<td>${h.par ?? ""}</td>`).join("")}<td class="tot"></td><td></td></tr>`;
   const canChallenge = !!g.challenge;
   const rows = g.rows.map((r, ri) => {
@@ -182,31 +218,60 @@ function render(g) {
     const cells = g.holes.map((h, i) => {
       const at = tap ? ` data-ch="${ri},${i}"` : "";
       if (r.pickups && r.pickups[i]) return `<td${at}><span class="pu">PU</span></td>`;
-      const s = r.scores[i];
-      return `<td${at}>${s == null ? "" : `<span class="s ${cls(s, h.par)}">${s}</span>`}</td>`;
+      const sc = r.scores[i];
+      return `<td${at}>${sc == null ? "" : `<span class="s ${cls(sc, h.par)}">${sc}</span>`}</td>`;
     }).join("");
     const tp = r.toPar || "";
     const tpc = tp.startsWith("-") ? "under" : (tp.startsWith("+") ? "over" : "");
     return `<tr><td class="name">${esc(r.name)}${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</td>${cells}<td class="tot">${esc(r.total)}</td><td class="topar ${tpc}">${esc(tp)}</td></tr>`;
   }).join("");
-
-  $("tabs").innerHTML = tabs.length > 1 ? tabs.join("") : "";
-  $("tabs").style.display = tabs.length > 1 ? "" : "none";
-  $("main").innerHTML = `
-    <section class="status"><div class="big">${esc(g.status)}</div><div class="thru">${esc(g.thru)}</div>
-      ${lines ? `<div class="lines">${lines}</div>` : ""}
-      ${totals ? `<div class="totals">${totals}</div>` : ""}</section>
-    ${prog}
-    <section class="card" id="scorecard"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
+  const cardPane = `<section class="card"><h2>SCORECARD &middot; IN THE ORDER PLAYED</h2>
       <div class="scroll"><table><thead>${head}</thead><tbody>${par}${rows}</tbody></table></div>
       <div class="chhint">${canChallenge
-        ? `Think a score is wrong? Tap it, or <a href="#challenge">challenge a score</a>.`
-        : `Think a score is wrong? Tell the scorer on the course &mdash; they'll check it and fix the card.`}</div></section>
-    ${games ? `<div id="games">${games}</div>` : ""}`;
+        ? `Think a score is wrong? Tap it, or <a href="#" data-goto-challenge>challenge a score</a>.`
+        : `Think a score is wrong? Tell the scorer on the course &mdash; they'll check it and fix the card.`}</div></section>`;
+
+  // GAMES — side games only
+  const gamesPane = sides.map(x => gameCard(x, g.holes, { headline: true })).join("");
+
+  const tabs = [];
+  if (firstPane) tabs.push(["match", isMatch ? "MATCH" : "LEADERBOARD"]);
+  tabs.push(["scorecard", "SCORECARD"]);
+  if (gamesPane) tabs.push(["games", "GAMES"]);
+  const ids = tabs.map(t => t[0]);
+  if (!ids.includes(pane)) {
+    const fromHash = location.hash.replace("#", "");
+    pane = ids.includes(fromHash) ? fromHash : ids[0];
+  }
+
+  $("tabs").innerHTML = tabs.length > 1
+    ? tabs.map(([id, label]) => `<button type="button" data-pane="${id}" class="${id === pane ? "on" : ""}">${label}</button>`).join("")
+    : "";
+  $("tabs").style.display = tabs.length > 1 ? "" : "none";
+  $("main").innerHTML =
+    (firstPane ? `<div class="pane" id="p-match"${pane === "match" ? "" : " hidden"}>${firstPane}</div>` : "") +
+    `<div class="pane" id="p-scorecard"${pane === "scorecard" ? "" : " hidden"}>${cardPane}</div>` +
+    (gamesPane ? `<div class="pane" id="p-games"${pane === "games" ? "" : " hidden"}>${gamesPane}</div>` : "");
   G = g;
   renderChallenge(g);
+  showChallengeForPane();
   lastUpdated = (g.updated || 0) * 1000;
   tickMeta();
+}
+
+function showPane(id) {
+  pane = id;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.pane === id));
+  document.querySelectorAll("#main .pane").forEach(el => { el.hidden = el.id !== "p-" + id; });
+  showChallengeForPane();
+  try { history.replaceState(null, "", "#" + id); } catch (e) {}
+  window.scrollTo({ top: 0 });
+}
+
+// The challenge panel lives outside #main (so the 15 s refresh never wipes
+// a half-written challenge) and shows only on the SCORECARD tab.
+function showChallengeForPane() {
+  $("challenge").style.display = (G && G.challenge && pane === "scorecard") ? "" : "none";
 }
 
 // The match hole by hole, in the order played: who won each hole, the
@@ -225,10 +290,10 @@ function progressCard(steps) {
   return `<section class="card" id="match"><h2>MATCH &middot; HOLE BY HOLE</h2><div class="prog">${rows}</div></section>`;
 }
 
-function gameCard(g, holes) {
+function gameCard(g, holes, opt = {}) {
   const players = g.players || [];
   const plist = players.map(p => `<span class="n">${esc(p.name)}</span>` +
-    `<span class="ph">PLAYS <b>${p.plays}</b></span><span class="sc">${esc(p.score)}</span>`).join("");
+    `<span class="ph">PLAYS <b>${p.plays}</b></span><span class="sc">${esc(p.score || (opt.gross && opt.gross[p.name]) || "")}</span>`).join("");
   const anyShots = players.some(p => (p.shots || []).some(x => x > 0));
   let grid = "";
   if (anyShots) {
@@ -243,9 +308,13 @@ function gameCard(g, holes) {
     grid = `<div class="sublabel">SHOTS RECEIVED &middot; IN THE ORDER PLAYED</div>
       <div class="scroll shots"><table><thead>${head}</thead><tbody>${si}${rows}</tbody></table></div>`;
   }
+  // The main game's headline is the score already in the header, so it
+  // isn't repeated; its holes-won lines and (non-match) totals go here.
+  const extra = (opt.lines ? `<div class="glines">${opt.lines}</div>` : "") +
+    (opt.totals ? `<div class="sublabel">TOTALS</div><div class="plist totals">${opt.totals}</div>` : "");
   return `<section class="card game"><h2>${esc(g.name)}</h2>
-    <div class="ghead">${esc(g.headline)}</div><div class="gnote">${esc(g.note)}</div>
-    <div class="plist">${plist}</div>${grid}</section>`;
+    ${opt.headline === false ? "" : `<div class="ghead">${esc(g.headline)}</div>`}<div class="gnote">${esc(g.note)}</div>
+    ${extra}<div class="plist">${plist}</div>${grid}</section>`;
 }
 
 // ---- score challenges ----------------------------------------------------
@@ -278,7 +347,7 @@ function renderChallenge(g) {
     ["chWant", "chName"].forEach(id => $(id).addEventListener("input", () => updateChallenge(true)));
     try { $("chName").value = localStorage.getItem("strikeLiveName") || ""; } catch (e) {}
   }
-  box.style.display = "";
+  showChallengeForPane();
   updateChallenge(true);
 }
 
@@ -305,6 +374,10 @@ function updateChallenge(keepWant) {
 }
 
 document.addEventListener("click", e => {
+  const tab = e.target.closest && e.target.closest("#tabs button[data-pane]");
+  if (tab) { showPane(tab.dataset.pane); return; }
+  const go = e.target.closest && e.target.closest("[data-goto-challenge]");
+  if (go) { e.preventDefault(); $("challenge").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const td = e.target.closest && e.target.closest("td[data-ch]");
   if (!td || !G || !$("chHole")) return;
   const [ri, i] = td.dataset.ch.split(",").map(Number);
